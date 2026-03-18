@@ -2,24 +2,26 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "@/server/routers/_app";
 import { createContext } from "@/server/trpc";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
 import { prisma } from "@/lib/db";
 
-async function getOrCreateDevUser() {
-  // In development without Supabase, use a seed user
-  let team = await prisma.team.findFirst({ where: { name: "Dev Team" } });
+const DEV_EMAIL = "dev@aisdr.local";
+const DEV_TEAM = "Dev Team";
+
+async function getOrCreateAppUser() {
+  // Get or create the default team and user for this app instance
+  let team = await prisma.team.findFirst({ where: { name: DEV_TEAM } });
   if (!team) {
     team = await prisma.team.create({
-      data: { name: "Dev Team" },
+      data: { name: DEV_TEAM },
     });
   }
 
-  let user = await prisma.user.findFirst({ where: { email: "dev@aisdr.local" } });
+  let user = await prisma.user.findFirst({ where: { email: DEV_EMAIL } });
   if (!user) {
     user = await prisma.user.create({
       data: {
-        email: "dev@aisdr.local",
-        name: "Dev User",
+        email: DEV_EMAIL,
+        name: "SDR User",
         role: "SDR",
         teamId: team.id,
       },
@@ -31,45 +33,23 @@ async function getOrCreateDevUser() {
 
 async function getSessionContext() {
   try {
-    // Dev mode: always use dev user bypass
-    if (process.env.NODE_ENV === "development") {
-      const devUser = await getOrCreateDevUser();
-      return createContext(devUser);
+    // Dev mode: always bypass auth
+    if (process.env.NODE_ENV === "development" || process.env.BYPASS_AUTH === "true") {
+      const appUser = await getOrCreateAppUser();
+      return createContext(appUser);
     }
 
+    // Production: check the aisdr-auth cookie (set by /api/auth/login)
     const cookieStore = cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() {
-            return cookieStore.getAll();
-          },
-          setAll() {
-            // API routes don't set cookies
-          },
-        },
-      }
-    );
+    const authCookie = cookieStore.get("aisdr-auth");
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    if (authCookie?.value === "authenticated") {
+      const appUser = await getOrCreateAppUser();
+      return createContext(appUser);
+    }
 
-    if (!user) return createContext();
-
-    // Look up our internal user record
-    const dbUser = await prisma.user.findUnique({
-      where: { email: user.email! },
-    });
-
-    if (!dbUser) return createContext();
-
-    return createContext({
-      userId: dbUser.id,
-      teamId: dbUser.teamId,
-    });
+    // Not authenticated
+    return createContext();
   } catch {
     return createContext();
   }
