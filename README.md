@@ -1,36 +1,122 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AI SDR Platform
+
+AI-guided outbound prospecting platform for PubNub's SDR team. A comprehensive 6-step workflow: Target → Prospect → Research → Compose → Sequence → Track.
+
+## Overview
+
+This platform streamlines the entire outbound sales development process using AI-powered automation and intelligent workflows. Built specifically for PubNub's SDR team to enhance prospecting efficiency and effectiveness.
+
+## Features
+
+- **Intelligent Targeting**: AI-powered prospect identification and segmentation
+- **Smart Prospecting**: Automated lead enrichment and qualification
+- **AI Research**: Deep prospect and company research automation
+- **Content Generation**: AI-powered email and message composition
+- **Sequence Management**: Automated follow-up campaigns and cadences
+- **Performance Tracking**: Comprehensive analytics and reporting
+
+## Tech Stack
+
+- **Frontend**: Next.js 14 (App Router) + TypeScript
+- **Styling**: Tailwind CSS + shadcn/ui components
+- **API Layer**: tRPC for type-safe API communication
+- **Database**: Prisma ORM + Supabase PostgreSQL
+- **AI**: Claude API for all AI workflows and content generation
+- **State Management**: TanStack Query for data fetching
+- **Background Jobs**: Inngest for asynchronous processing
+- **Integrations**: Salesforce, ZoomInfo, and other sales tools
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+ and npm
+- Supabase account and database
+- Claude API key (Anthropic)
+
+### Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/PubNubDevelopers/aisdr.git
+cd aisdr
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up environment variables:
+```bash
+cp .env.example .env
+# Fill in your API keys and database URLs
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Set up the database:
+```bash
+npm run db:push
+npm run db:generate
+```
 
-## Learn More
+5. Start the development server:
+```bash
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open [http://localhost:3000](http://localhost:3000) to view the application.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Available Scripts
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `npm run dev` — Start development server
+- `npm run build` — Create production build
+- `npm run start` — Start production server
+- `npm run lint` — Run ESLint
+- `npm run db:generate` — Regenerate Prisma client
+- `npm run db:push` — Push schema changes to database
+- `npm run db:migrate` — Create and run database migrations
+- `npm run db:studio` — Open Prisma Studio
 
-## Deploy on Vercel
+## Project Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/
+├── app/(dashboard)/          # Main workflow pages
+│   ├── targeting/           # Target identification
+│   ├── prospecting/         # Lead prospecting
+│   ├── research/            # AI research workflows
+│   ├── compose/             # Content generation
+│   ├── sequences/           # Campaign management
+│   └── tracking/            # Analytics & reporting
+├── server/routers/          # tRPC API routes
+├── lib/
+│   ├── ai/                  # Claude API client & prompts
+│   ├── integrations/        # External API clients
+│   └── utils/               # Shared utilities
+└── components/              # React components
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Configuration
+
+The application requires several environment variables. Copy `.env.example` to `.env` and configure:
+
+- **Database**: Supabase connection strings
+- **AI**: Claude API key and configuration
+- **Integrations**: API keys for Salesforce, ZoomInfo, etc.
+- **Background Jobs**: Inngest configuration
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/amazing-feature`
+3. Commit your changes: `git commit -m 'Add amazing feature'`
+4. Push to the branch: `git push origin feature/amazing-feature`
+5. Open a Pull Request
+
+## License
+
+This project is proprietary software developed for PubNub Inc.
+
+## Support
+
+For questions or support, please contact the PubNub Developer Relations team at devrel@pubnub.com.
