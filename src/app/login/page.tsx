@@ -32,7 +32,7 @@ export default function LoginPage() {
       } else {
         setError(data.error || "Invalid password");
       }
-    } catch (error) {
+    } catch {
       setError("An error occurred. Please try again.");
     } finally {
       setIsLoading(false);
