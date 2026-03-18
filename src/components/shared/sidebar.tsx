@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils/cn";
 import { trpc } from "@/lib/trpc/client";
 import {
@@ -15,7 +15,9 @@ import {
   Zap,
   ShieldCheck,
   Plug,
+  LogOut,
 } from "lucide-react";
+import { useState } from "react";
 
 const workflowSteps = [
   { name: "Targeting", href: "/targeting", icon: Target, step: 1, description: "Define your ICP" },
@@ -33,8 +35,25 @@ const bottomNav = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
   const { data: settings } = trpc.settings.get.useQuery();
   const safeMode = settings?.safeMode ?? true;
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+      });
+      router.push("/login");
+      router.refresh();
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-background">
@@ -118,6 +137,20 @@ export function Sidebar() {
             </Link>
           );
         })}
+        
+        {/* Logout Button */}
+        <button
+          onClick={handleLogout}
+          disabled={isLoggingOut}
+          className={cn(
+            "flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
+            "text-muted-foreground hover:bg-accent hover:text-foreground",
+            "disabled:opacity-50 disabled:cursor-not-allowed"
+          )}
+        >
+          <LogOut className="h-4 w-4" />
+          {isLoggingOut ? "Logging out..." : "Logout"}
+        </button>
       </div>
     </div>
   );
