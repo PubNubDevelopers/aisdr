@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String
+  role      Role       @default(SDR)
+  teamId    String
+  team      Team       @relation(fields: [teamId], references: [id])
+  prospects Prospect[]
+  messages  Message[]
+  createdAt DateTime   @default(now())
+}
+
+enum Role {
+  SDR
+  DIRECTOR
+}
+
+model Team {
+  id                String             @id @default(cuid())
+  name              String
+  users             User[]
+  targetingProfiles TargetingProfile[]
+  settings          Json               @default("{}")
+  createdAt         DateTime           @default(now())
+}
+
+model TargetingProfile {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  criteria    Json // { industries, companySize, titles, techSignals, triggers }
+  teamId      String
+  team        Team     @relation(fields: [teamId], references: [id])
+  createdBy   String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Company {
+  id             String     @id @default(cuid())
+  name           String
+  domain         String?    @unique
+  industry       String?
+  employeeCount  Int?
+  fundingStage   String?
+  techStack      String[]
+  description    String?
+  enrichmentData Json?
+  salesforceId   String?    @unique
+  prospects      Prospect[]
+  signals        Signal[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Prospect {
+  id                  String               @id @default(cuid())
+  firstName           String
+  lastName            String
+  email               String?
+  phone               String?
+  title               String?
+  linkedinUrl         String?
+  companyId           String
+  company             Company              @relation(fields: [companyId], references: [id])
+  ownerId             String
+  owner               User                 @relation(fields: [ownerId], references: [id])
+  score               Float?
+  scoreExplanation    String?
+  status              ProspectStatus       @default(NEW)
+  enrichmentData      Json?
+  salesforceId        String?              @unique
+  outreachId          String?              @unique
+  researchBrief       ResearchBrief?
+  messages            Message[]
+  sequenceEnrollments SequenceEnrollment[]
+  tags                String[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+}
+
+enum ProspectStatus {
+  NEW
+  RESEARCHED
+  OUTREACH_DRAFTED
+  IN_SEQUENCE
+  ENGAGED
+  MEETING_BOOKED
+  DISQUALIFIED
+}
+
+model ResearchBrief {
+  id                   String   @id @default(cuid())
+  prospectId           String   @unique
+  prospect             Prospect @relation(fields: [prospectId], references: [id])
+  companySnapshot      Json // { whatTheyDo, size, funding, growth }
+  realtimeRelevance    String
+  keyPeople            Json // [{ name, title, background }]
+  personalizationHooks Json // [{ hook, source, relevance }]
+  competitiveIntel     String?
+  recommendedAngle     String
+  sourcesUsed          String[]
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Message {
+  id           String        @id @default(cuid())
+  prospectId   String
+  prospect     Prospect      @relation(fields: [prospectId], references: [id])
+  channel      Channel
+  direction    Direction     @default(OUTBOUND)
+  subject      String?
+  content      String
+  variants     Json? // [{ content, subject }]
+  status       MessageStatus @default(DRAFT)
+  sequenceId   String? // Groups all messages in a generated sequence
+  sequenceStep Int?
+  stepDay      Int? // Day number in sequence (1, 2, 5, 8, 10, 14, 17, 19, 22)
+  stepType     String? // "manual_email" | "automated_email" | "connect_request" | "linkedin_message" | "call"
+  isBreakup    Boolean       @default(false)
+  createdBy    String
+  creator      User          @relation(fields: [createdBy], references: [id])
+  outreachId   String?
+  sentAt       DateTime?
+  openedAt     DateTime?
+  clickedAt    DateTime?
+  repliedAt    DateTime?
+  createdAt    DateTime      @default(now())
+
+  @@index([sequenceId, sequenceStep])
+}
+
+enum Channel {
+  EMAIL
+  LINKEDIN
+  PHONE
+}
+
+enum Direction {
+  OUTBOUND
+  INBOUND
+}
+
+enum MessageStatus {
+  DRAFT
+  APPROVED
+  SENT
+  OPENED
+  CLICKED
+  REPLIED
+  BOUNCED
+}
+
+model Signal {
+  id         String     @id @default(cuid())
+  companyId  String
+  company    Company    @relation(fields: [companyId], references: [id])
+  type       SignalType
+  source     String
+  title      String
+  details    Json
+  strength   Float
+  detectedAt DateTime   @default(now())
+}
+
+enum SignalType {
+  FUNDING
+  HIRING
+  TECH_CHANGE
+  INTENT
+  NEWS
+  APP_GROWTH
+  LEADERSHIP_CHANGE
+}
+
+model SequenceEnrollment {
+  id                 String         @id @default(cuid())
+  prospectId         String
+  prospect           Prospect       @relation(fields: [prospectId], references: [id])
+  sequenceName       String
+  sequenceId         String? // Links to generated Message group
+  outreachSequenceId String?
+  currentStep        Int            @default(1)
+  totalSteps         Int            @default(12)
+  status             SequenceStatus @default(ACTIVE)
+  enrolledAt         DateTime       @default(now())
+  completedAt        DateTime?
+}
+
+enum SequenceStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  REPLIED
+  BOUNCED
+}
