@@ -97,16 +97,63 @@ function SequenceMode({
   latestSequenceId: string | null;
 }) {
   const utils = trpc.useUtils();
-  const generateSequence = trpc.compose.generateSequence.useMutation({
-    onSuccess: () => {
+  const [generating, setGenerating] = useState(false);
+  const [currentBatch, setCurrentBatch] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const prepareSequence = trpc.compose.prepareSequence.useMutation();
+  const generateBatch = trpc.compose.generateBatch.useMutation();
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    setCurrentBatch(0);
+
+    try {
+      // Step 1: Prepare context (fast, no AI call)
+      const ctx = await prepareSequence.mutateAsync({ prospectId });
+
+      const batchSummaries: string[] = [];
+
+      // Step 2: Generate 3 batches sequentially
+      for (const batchNum of [1, 2, 3] as const) {
+        setCurrentBatch(batchNum);
+        const result = await generateBatch.mutateAsync({
+          batchNumber: batchNum,
+          sequenceId: ctx.sequenceId,
+          prospectId,
+          prospectName: ctx.prospectName,
+          prospectTitle: ctx.prospectTitle,
+          companyName: ctx.companyName,
+          briefData: ctx.briefData,
+          contentSection: ctx.contentSection,
+          systemPrompt: ctx.systemPrompt,
+          stepInstructions: ctx.stepInstructions,
+          previousBatchSummaries: batchSummaries,
+          gongInsights: ctx.gongInsights,
+        });
+        batchSummaries.push(result.batchSummary);
+
+        // Refresh timeline after each batch so steps appear progressively
+        utils.compose.getSequence.invalidate({ sequenceId: ctx.sequenceId });
+      }
+
+      // Done — refresh sequence list
       utils.compose.listSequences.invalidate({ prospectId });
       utils.prospecting.get.invalidate({ id: prospectId });
-    },
-  });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate sequence");
+    } finally {
+      setGenerating(false);
+      setCurrentBatch(0);
+    }
+  };
 
   if (latestSequenceId) {
     return <SequenceTimeline prospectId={prospectId} sequenceId={latestSequenceId} />;
   }
+
+  const batchLabels = ["", "Value phase (Steps 1-4)", "Proof phase (Steps 5-8)", "Breakup phase (Steps 9-12)"];
 
   return (
     <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-8 text-center">
@@ -117,13 +164,13 @@ function SequenceMode({
       </p>
       <Button
         size="lg"
-        onClick={() => generateSequence.mutate({ prospectId })}
-        disabled={generateSequence.isPending || !hasResearchBrief}
+        onClick={handleGenerate}
+        disabled={generating || !hasResearchBrief}
       >
-        {generateSequence.isPending ? (
+        {generating ? (
           <>
             <LoadingSpinner className="mr-2" />
-            Generating Sequence...
+            Generating...
           </>
         ) : (
           <>
@@ -132,15 +179,25 @@ function SequenceMode({
           </>
         )}
       </Button>
-      {generateSequence.isPending && (
-        <p className="mt-3 text-xs text-muted-foreground">
-          This takes ~30 seconds — generating 3 batches of messages with cross-step coherence...
-        </p>
+      {generating && currentBatch > 0 && (
+        <div className="mt-4 w-full max-w-xs">
+          <div className="flex justify-between text-xs text-muted-foreground mb-1">
+            <span>Batch {currentBatch} of 3</span>
+            <span>{batchLabels[currentBatch]}</span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-500"
+              style={{ width: `${((currentBatch - 1) / 3) * 100 + 10}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Each batch takes ~10 seconds...
+          </p>
+        </div>
       )}
-      {generateSequence.error && (
-        <p className="mt-3 text-sm text-red-600">
-          {generateSequence.error.message}
-        </p>
+      {error && (
+        <p className="mt-3 text-sm text-red-600">{error}</p>
       )}
     </div>
   );

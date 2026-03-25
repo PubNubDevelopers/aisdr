@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { composeOutreach } from "@/lib/ai/workflows/compose-outreach";
-import { composeFullSequence } from "@/lib/ai/workflows/compose-sequence";
+import { prepareSequenceContext, generateSequenceBatch } from "@/lib/ai/workflows/compose-sequence";
 
 export const composeRouter = router({
   // Generate outreach messages for a prospect
@@ -102,17 +102,59 @@ export const composeRouter = router({
 
   // ── Sequence-Aware Procedures ─────────────────────────────
 
-  // Generate full 12-step outreach sequence
-  generateSequence: protectedProcedure
+  // Step 1: Prepare shared context for sequence generation (fast, no AI call)
+  prepareSequence: protectedProcedure
     .input(z.object({ prospectId: z.string() }))
     .mutation(async ({ ctx, input }) => {
       await ctx.prisma.prospect.findUniqueOrThrow({
         where: { id: input.prospectId, ownerId: ctx.userId },
       });
-      return composeFullSequence({
+      return prepareSequenceContext({
         prospectId: input.prospectId,
-        userId: ctx.userId,
         teamId: ctx.teamId,
+      });
+    }),
+
+  // Step 2: Generate a single batch (call 3 times: batch 1, 2, 3)
+  generateBatch: protectedProcedure
+    .input(
+      z.object({
+        batchNumber: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+        sequenceId: z.string(),
+        prospectId: z.string(),
+        prospectName: z.string(),
+        prospectTitle: z.string().optional(),
+        companyName: z.string(),
+        briefData: z.object({
+          companySnapshot: z.record(z.string(), z.string()),
+          realtimeRelevance: z.string(),
+          personalizationHooks: z.array(z.object({
+            hook: z.string(),
+            source: z.string(),
+            relevance: z.string(),
+          })),
+          competitiveIntel: z.string().optional(),
+          recommendedAngle: z.string(),
+        }),
+        contentSection: z.string(),
+        systemPrompt: z.string(),
+        stepInstructions: z.record(z.string(), z.string()).optional(),
+        previousBatchSummaries: z.array(z.string()),
+        gongInsights: z.object({
+          topTopics: z.array(z.string()),
+          effectiveQuestions: z.array(z.string()),
+          commonObjections: z.array(z.string()),
+          winningTalkTracks: z.array(z.string()),
+        }).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      return generateSequenceBatch({
+        ...input,
+        userId: ctx.userId,
+        stepInstructions: input.stepInstructions ?? undefined,
+        prospectTitle: input.prospectTitle ?? undefined,
+        gongInsights: input.gongInsights ?? undefined,
       });
     }),
 

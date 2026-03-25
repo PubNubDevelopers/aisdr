@@ -22,24 +22,41 @@ interface BatchResult {
   batchSummary: string;
 }
 
-export async function composeFullSequence(params: {
+/** Prepare shared context for all batches — called once before batch 1 */
+export async function prepareSequenceContext(params: {
   prospectId: string;
-  userId: string;
   teamId: string;
-}): Promise<{ sequenceId: string; messageCount: number }> {
-  const { prospectId, userId, teamId } = params;
+}): Promise<{
+  sequenceId: string;
+  prospectName: string;
+  prospectTitle: string | undefined;
+  companyName: string;
+  briefData: {
+    companySnapshot: Record<string, string>;
+    realtimeRelevance: string;
+    personalizationHooks: Array<{ hook: string; source: string; relevance: string }>;
+    competitiveIntel?: string;
+    recommendedAngle: string;
+  };
+  contentSection: string;
+  systemPrompt: string;
+  stepInstructions: Record<string, string> | undefined;
+  gongInsights?: {
+    topTopics: string[];
+    effectiveQuestions: string[];
+    commonObjections: string[];
+    winningTalkTracks: string[];
+  };
+}> {
+  const { prospectId, teamId } = params;
 
-  // 1. Fetch prospect with research brief
   const prospect = await prisma.prospect.findUniqueOrThrow({
     where: { id: prospectId },
-    include: {
-      company: true,
-      researchBrief: true,
-    },
+    include: { company: true, researchBrief: true },
   });
 
   if (!prospect.researchBrief) {
-    throw new Error("Research brief required before generating a sequence. Generate a brief first.");
+    throw new Error("Research brief required before generating a sequence.");
   }
 
   const brief = prospect.researchBrief;
@@ -47,24 +64,21 @@ export async function composeFullSequence(params: {
     companySnapshot: brief.companySnapshot as Record<string, string>,
     realtimeRelevance: brief.realtimeRelevance,
     personalizationHooks: brief.personalizationHooks as Array<{
-      hook: string;
-      source: string;
-      relevance: string;
+      hook: string; source: string; relevance: string;
     }>,
     competitiveIntel: brief.competitiveIntel ?? undefined,
     recommendedAngle: brief.recommendedAngle,
   };
 
-  // 2. Match content library to prospect's industry
   const matched = matchContent({
     industry: prospect.company.industry ?? undefined,
     realtimeRelevance: brief.realtimeRelevance,
     recommendedAngle: brief.recommendedAngle,
     competitiveIntel: brief.competitiveIntel ?? undefined,
   });
-  const contentSection = formatContentForPrompt(matched);
 
-  // 3. Fetch Gong insights (optional)
+  const overrides = await getPromptOverrides(teamId);
+
   let gongInsights: Awaited<ReturnType<typeof getTalkTrackInsights>> | undefined;
   if (isGongConfigured()) {
     try {
@@ -76,54 +90,85 @@ export async function composeFullSequence(params: {
         gongInsights = undefined;
       }
     } catch {
-      // Gong insights are supplementary
+      // supplementary
     }
   }
 
-  // 4. Load prompt overrides from team settings
-  const overrides = await getPromptOverrides(teamId);
-  const systemPrompt = overrides.sequenceSystemPrompt || COMPOSE_SEQUENCE_SYSTEM;
+  return {
+    sequenceId: crypto.randomUUID(),
+    prospectName: `${prospect.firstName} ${prospect.lastName}`,
+    prospectTitle: prospect.title ?? undefined,
+    companyName: prospect.company.name,
+    briefData,
+    contentSection: formatContentForPrompt(matched),
+    systemPrompt: overrides.sequenceSystemPrompt || COMPOSE_SEQUENCE_SYSTEM,
+    stepInstructions: overrides.stepInstructions ?? undefined,
+    gongInsights,
+  };
+}
 
-  // 5. Generate sequence ID
-  const sequenceId = crypto.randomUUID();
+/** Generate a single batch (1, 2, or 3) and save messages to DB */
+export async function generateSequenceBatch(params: {
+  batchNumber: 1 | 2 | 3;
+  sequenceId: string;
+  prospectId: string;
+  userId: string;
+  prospectName: string;
+  prospectTitle: string | undefined;
+  companyName: string;
+  briefData: {
+    companySnapshot: Record<string, string>;
+    realtimeRelevance: string;
+    personalizationHooks: Array<{ hook: string; source: string; relevance: string }>;
+    competitiveIntel?: string;
+    recommendedAngle: string;
+  };
+  contentSection: string;
+  systemPrompt: string;
+  stepInstructions: Record<string, string> | undefined;
+  previousBatchSummaries: string[];
+  gongInsights?: {
+    topTopics: string[];
+    effectiveQuestions: string[];
+    commonObjections: string[];
+    winningTalkTracks: string[];
+  };
+}): Promise<{ batchSummary: string; stepsGenerated: number }> {
+  const {
+    batchNumber, sequenceId, prospectId, userId,
+    prospectName, prospectTitle, companyName,
+    briefData, contentSection, systemPrompt, stepInstructions,
+    previousBatchSummaries, gongInsights,
+  } = params;
 
-  // 6. Generate 3 batches sequentially (each batch needs summary of previous)
-  const batchSummaries: string[] = [];
-  const allStepResults: BatchResult["steps"] = [];
+  const steps = getStepsForBatch(batchNumber).map((step) => {
+    const override = stepInstructions?.[String(step.step)];
+    return override ? { ...step, aiInstructions: override } : step;
+  });
 
-  for (const batchNum of [1, 2, 3] as const) {
-    const steps = getStepsForBatch(batchNum).map((step) => {
-      // Apply per-step instruction overrides if set
-      const override = overrides.stepInstructions?.[String(step.step)];
-      return override ? { ...step, aiInstructions: override } : step;
-    });
-    const prompt = buildSequenceBatchPrompt({
-      batchNumber: batchNum,
-      steps,
-      prospectName: `${prospect.firstName} ${prospect.lastName}`,
-      prospectTitle: prospect.title ?? undefined,
-      companyName: prospect.company.name,
-      researchBrief: briefData,
-      matchedContent: contentSection,
-      previousBatchSummaries: batchSummaries.length > 0 ? batchSummaries : undefined,
-      gongInsights,
-    });
+  const prompt = buildSequenceBatchPrompt({
+    batchNumber,
+    steps,
+    prospectName,
+    prospectTitle,
+    companyName,
+    researchBrief: briefData,
+    matchedContent: contentSection,
+    previousBatchSummaries: previousBatchSummaries.length > 0 ? previousBatchSummaries : undefined,
+    gongInsights,
+  });
 
-    const result = await generateStructured<BatchResult>({
-      system: systemPrompt,
-      prompt,
-      schema: SEQUENCE_BATCH_SCHEMA,
-      maxTokens: 8192,
-    });
+  const result = await generateStructured<BatchResult>({
+    system: systemPrompt,
+    prompt,
+    schema: SEQUENCE_BATCH_SCHEMA,
+    maxTokens: 8192,
+  });
 
-    allStepResults.push(...result.steps);
-    batchSummaries.push(result.batchSummary);
-  }
-
-  // 6. Save all messages to database
+  // Save messages
   type MessageData = Parameters<typeof prisma.message.create>[0]["data"];
 
-  for (const stepResult of allStepResults) {
+  for (const stepResult of result.steps) {
     const playbookStep = SEQUENCE_PLAYBOOK.find((s) => s.step === stepResult.step);
     if (!playbookStep) continue;
 
@@ -153,11 +198,16 @@ export async function composeFullSequence(params: {
     });
   }
 
-  // 7. Update prospect status
-  await prisma.prospect.update({
-    where: { id: prospectId },
-    data: { status: "OUTREACH_DRAFTED" },
-  });
+  // After batch 3, update prospect status
+  if (batchNumber === 3) {
+    await prisma.prospect.update({
+      where: { id: prospectId },
+      data: { status: "OUTREACH_DRAFTED" },
+    });
+  }
 
-  return { sequenceId, messageCount: allStepResults.length };
+  return {
+    batchSummary: result.batchSummary,
+    stepsGenerated: result.steps.length,
+  };
 }
